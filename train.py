@@ -57,4 +57,12 @@ class CustomConv2d(nn.module):
 
         return x
 
+def convolution2d(input, kernels, bias):
+    out_height = (input.size(2) - kernels.size(2)) + 1
+    out_width = (input.size(3) - kernels.size(3)) + 1
 
+    uinput = F.unfold(input, (kernels.size(2), kernels.size(3)))
+    uoutput = uinput.transpose(1, 2).matmul(kernels.view(kernels.size(0), -1).t()).transpose(1, 2)
+    uoutput = uinput + bias # Tror ikke det her virker
+    output = F.fold(uoutput, (out_height, out_width), (1, 1))
+    return output
