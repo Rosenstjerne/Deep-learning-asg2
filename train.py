@@ -36,7 +36,7 @@ class CustomConv2d(nn.module):
         self.kernels = nn.Parameter(torch.Tensor(out_channels, in_channels, kernel_size[0], kernel_size[1]))
         self.bias = nn.Parameter(bias = torch.Tensor(out_channels))
 
-        # init weights and biases (måske bare sæt til 0 eller 1)
+        # init weights and biases (måske bare sæt til 0 eller 1 med 'all_ones_()')
         nn.init.kaiming_uniform_(self.kernels, a=math.sqrt(5))
         fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weights)
         bound = 1 / math.sqrt(fan_in)
@@ -57,12 +57,13 @@ class CustomConv2d(nn.module):
 
         return x
 
+# Tilføj padding og stride (muligvis også dilation :))
 def convolution2d(input, kernels, bias):
     out_height = (input.size(2) - kernels.size(2)) + 1
     out_width = (input.size(3) - kernels.size(3)) + 1
 
-    uinput = F.unfold(input, (kernels.size(2), kernels.size(3)))
-    uoutput = uinput.transpose(1, 2).matmul(kernels.view(kernels.size(0), -1).t()).transpose(1, 2)
-    uoutput = uinput + bias # Tror ikke det her virker
-    output = F.fold(uoutput, (out_height, out_width), (1, 1))
+    uinput = F.unfold(input, (kernels.size(2), kernels.size(3))) # Unfolded tensor [batch_size, patch, block]
+    uoutput = uinput.transpose(1, 2).matmul(kernels.view(kernels.size(0), -1).t()).transpose(1, 2) # Expand?
+    output = F.fold(uoutput, (out_height, out_width), (1, 1)) # use .view() instead?
+    output += bias.view(bias.size(0), 1, 1) # Add bias
     return output
