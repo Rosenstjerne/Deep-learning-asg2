@@ -44,25 +44,17 @@ class CustomConv2d(nn.module):
         
     def forward(self, x):
 
-        # Shape of output convolution (tror ikke det her er korrekt)
-        out_height = int(((x.size(dim=2) - self.kernels.size(dim=2) + 2 * self.padding) / self.stride) + 1)
-        out_width = int(((x.size(dim=3) - self.kernels.size(dim=3) + 2 * self.padding) / self.stride) + 1)
-        output = nn.Tensor.new_zeros((x.size(dim=0), self.out_channels, out_height, out_width))
-
-        # Apply padding
-        x = F.pad(x, self.padding)
-
         # Ikke forbudt af opgaven
         x = F.conv2d(x, self.kernels, self.bias, self.stride, self.padding)
 
         return x
 
-# Tilføj padding og stride (muligvis også dilation :))
-def convolution2d(input, kernels, bias):
-    out_height = (input.size(2) - kernels.size(2)) + 1
-    out_width = (input.size(3) - kernels.size(3)) + 1
+# Muligvis tilføj dilation???
+def convolution2d(input, kernels, bias, padding=0, stride=1):
+    out_height = ((input.size(2) - kernels.size(2) + 2 * padding) / stride) + 1 # ( ( I - K + 2P ) / S ) + 1
+    out_width = ((input.size(3) - kernels.size(3) + 2 * padding) / stride) + 1
 
-    uinput = F.unfold(input, (kernels.size(2), kernels.size(3))) # Unfolded tensor [batch_size, patch, block]
+    uinput = F.unfold(input, (kernels.size(2), kernels.size(3)), padding=padding, stride=stride) # Unfolded tensor [batch_size, patch, block]
     uoutput = uinput.transpose(1, 2).matmul(kernels.view(kernels.size(0), -1).t()).transpose(1, 2) # Expand?
     output = F.fold(uoutput, (out_height, out_width), (1, 1)) # use .view() instead?
     output += bias.view(bias.size(0), 1, 1) # Add bias
