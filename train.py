@@ -43,19 +43,26 @@ class CustomConv2d(nn.module):
         nn.init.uniform_(self.bias, -bound, bound)  # bias init
         
     def forward(self, x):
-
-        # Ikke forbudt af opgaven
-        x = F.conv2d(x, self.kernels, self.bias, self.stride, self.padding)
+        x = convolution2d(x, self.kernels, self.bias, self.padding, self.stride)
 
         return x
 
-# Muligvis tilføj dilation???
+# Muligvis tilføj 'dilation' parameter???
 def convolution2d(input, kernels, bias, padding=0, stride=1):
     out_height = ((input.size(2) - kernels.size(2) + 2 * padding) / stride) + 1 # ( ( I - K + 2P ) / S ) + 1
     out_width = ((input.size(3) - kernels.size(3) + 2 * padding) / stride) + 1
 
+    # Unfold the input tensor
+    # This practically convolves over the values of the input tensor without multiplying by the kernels
     uinput = F.unfold(input, (kernels.size(2), kernels.size(3)), padding=padding, stride=stride) # Unfolded tensor [batch_size, patch, block]
-    uoutput = uinput.transpose(1, 2).matmul(kernels.view(kernels.size(0), -1).t()).transpose(1, 2) # Expand?
-    output = F.fold(uoutput, (out_height, out_width), (1, 1)) # use .view() instead?
-    output += bias.view(bias.size(0), 1, 1) # Add bias
+
+    # Calculate output
+    # For this we can simply ignore the dimention of batch_size, as it will be handled by broadcasting
+    uoutput = uinput.transpose(1, 2) # Transpose the tensor
+    uoutput = uoutput.matmul(kernels.view(kernels.size(0), -1).t()) # Perform the matrix multiplication with kernels(.matmul() supports broadcasting)
+    uoutput = uoutput.transpose(1, 2) # Transpose the tensor back
+    output = F.fold(uoutput, (out_height, out_width), (1, 1)) # Fold back the tensor to complete the convolution
+
+    # Add bias and return
+    output += bias.view(bias.size(0), 1, 1)
     return output
