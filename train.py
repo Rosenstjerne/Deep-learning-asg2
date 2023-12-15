@@ -80,28 +80,26 @@ def train_and_validate(model, train_loader, validate_loader, optimizer, criterio
 
 if __name__ == '__main__':
     train_transforms = transforms.Compose([
-        transforms.Resize((224,224)),
+        transforms.Resize((224,224)), # Images MUST be resized to 224x224
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.TrivialAugmentWide(),
         transforms.ToTensor(),
         ])
         
     train_dataset = datasets.ImageFolder('./data/data/training', train_transforms)
+    # TODO: validation dataset
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=64, shuffle=True)
 
     model = PneumoniaClassifier()
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    epochs = 10
 
     device = torch.device("cuda")
     model = model.to(device)
     print(device)
 
-    epochs = 10
-    for epoch in range(epochs):
-        train_loss, train_acc = train_step(model, train_loader, criterion, optimizer, device)
-
-        print(f'Epoch {epoch+1}/{epochs} - Train loss: {train_loss:.4f}, Train acc: {train_acc:.4f}')
-
-    torch.save(model, './pneumonia_classifier.pth')
+    # TODO after validation dataset is coded
+    # * Use 'train_and_validate()' to train model
+    # * Save model
