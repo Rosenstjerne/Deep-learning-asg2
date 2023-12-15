@@ -1,68 +1,107 @@
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
+from torchvision import datasets, transforms
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-# Based on https://auro-227.medium.com/writing-a-custom-layer-in-pytorch-14ab6ac94b77
-# TODO Plagiat pass
-class CustomLinear(nn.module):
-    def __init__(self, in_features, out_features):
-        super(CustomLinear, self).__init__()
-        self.weights = nn.Parameter(torch.Tensor(in_features, out_features))
-        self.bias = nn.Parameter(torch.Tensor(out_features))
+from layers import CustomLinear, CustomConv2d
 
-        # init weights and biases
-        nn.init.kaiming_uniform_(self.weights, a=math.sqrt(5)) # weight init
-        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weights)
-        bound = 1 / math.sqrt(fan_in)
-        nn.init.uniform_(self.bias, -bound, bound)  # bias init
-    
+class PneumoniaClassifier(nn.Model):
+    def __init__(self):
+        super(PneumoniaClassifier, self).__init__()
+
     def forward(self, x):
-        w_times_x = torch.matmul(x, self.weights.t()) # matmul is used instead of mm because it supports broadcasting
-        return torch.add(w_times_x, self.bias)  # w * x + b
-
-class CustomConv2d(nn.module):
-    # input tensor [batch_size, in_channels, height, width]
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0):
-        super(CustomConv2d, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.padding = [padding] * 4
-
-        self.kernels = nn.Parameter(torch.Tensor(out_channels, in_channels, kernel_size[0], kernel_size[1]))
-        self.bias = nn.Parameter(bias = torch.Tensor(out_channels))
-
-        # init weights and biases (måske bare sæt til 0 eller 1 med 'all_ones_()')
-        nn.init.kaiming_uniform_(self.kernels, a=math.sqrt(5))
-        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weights)
-        bound = 1 / math.sqrt(fan_in)
-        nn.init.uniform_(self.bias, -bound, bound)  # bias init
-        
-    def forward(self, x):
-        x = convolution2d(x, self.kernels, self.bias, self.padding, self.stride)
-
         return x
 
-# Muligvis tilføj 'dilation' parameter???
-def convolution2d(input, kernels, bias, padding=0, stride=1):
-    out_height = ((input.size(2) - kernels.size(2) + 2 * padding) / stride) + 1 # ( ( I - K + 2P ) / S ) + 1
-    out_width = ((input.size(3) - kernels.size(3) + 2 * padding) / stride) + 1
+def train_step(model, train_loader, criterion, optimizer, device):
+    model.train()
+    train_loss, correct, total = 0, 0, 0
+    
+    for data, target in train_loader:
+        data, target = data.to(device), target.to(device)  # move data to GPU
+        optimizer.zero_grad()
+        output = model(data)
+        loss = criterion(output, target)  # compute loss
+        loss.backward()
+        optimizer.step()
 
-    # Unfold the input tensor
-    # This practically convolves over the values of the input tensor without multiplying by the kernels
-    uinput = F.unfold(input, (kernels.size(2), kernels.size(3)), padding=padding, stride=stride) # Unfolded tensor [batch_size, patch, block]
+        train_loss += loss.item() * data.size(0)  # accumulate the loss
+        _, predicted = torch.max(output.data, 1)
+        total += target.size(0)
+        correct += (predicted == target).sum().item()
 
-    # Calculate output
-    # For this we can simply ignore the dimention of batch_size, as it will be handled by broadcasting
-    uoutput = uinput.transpose(1, 2) # Transpose the tensor
-    uoutput = uoutput.matmul(kernels.view(kernels.size(0), -1).t()) # Perform the matrix multiplication with kernels(.matmul() supports broadcasting)
-    uoutput = uoutput.transpose(1, 2) # Transpose the tensor back
-    output = F.fold(uoutput, (out_height, out_width), (1, 1)) # Fold back the tensor to complete the convolution
+    avg_loss = train_loss / len(train_loader.dataset)
+    accuracy = correct / total
+    return avg_loss, accuracy
 
-    # Add bias and return
-    output += bias.view(bias.size(0), 1, 1)
-    return output
+def validate_step(model, validate_loader, criterion, device):
+    model.eval()
+    validate_loss, correct, total = 0, 0, 0
+    
+    with torch.no_grad():
+        for data, target in validate_loader:
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            loss = criterion(output, target)
+            validate_loss += loss.item() * data.size(0)  # accumulate the loss
+            _, predicted = torch.max(output.data, 1)
+            total += target.size(0)
+            correct += (predicted == target).sum().item()
+    
+    avg_loss = validate_loss / len(validate_loader.dataset)
+    accuracy = correct / total
+    return avg_loss, accuracy
+
+def train_and_validate(model, train_loader, validate_loader, optimizer, criterion, device, epochs):
+    results = {
+        "train_loss": [],
+        "train_acc": [],
+        "validate_loss": [],
+        "validate_acc": []
+    }
+
+    scheduler = ReduceLROnPlateau(optimizer, 'min')
+
+    for epoch in range(epochs):
+        train_loss, train_acc = train_step(model, train_loader, criterion, optimizer, device)
+        validate_loss, validate_acc = validate_step(model, validate_loader, criterion, device)
+
+        scheduler.step(validate_loss)
+
+        results["train_loss"].append(train_loss)
+        results["train_acc"].append(train_acc)
+        results["validate_loss"].append(validate_loss)
+        results["validate_acc"].append(validate_acc)
+
+        print(f'Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, '
+              f'Validate Loss: {validate_loss:.4f}, Validate Acc: {validate_acc:.4f}')
+
+    return results
+
+if __name__ == '__main__':
+    train_transforms = transforms.Compose([
+        transforms.Resize((224,224)),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.TrivialAugmentWide(),
+        transforms.ToTensor(),
+        ])
+        
+    train_dataset = datasets.ImageFolder('./data/data/training', train_transforms)
+
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=64, shuffle=True)
+
+    model = PneumoniaClassifier()
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+
+    device = torch.device("cuda")
+    model = model.to(device)
+    print(device)
+
+    epochs = 10
+    for epoch in range(epochs):
+        train_loss, train_acc = train_step(model, train_loader, criterion, optimizer, device)
+
+        print(f'Epoch {epoch+1}/{epochs} - Train loss: {train_loss:.4f}, Train acc: {train_acc:.4f}')
+
+    torch.save(model, './pneumonia_classifier.pth')
